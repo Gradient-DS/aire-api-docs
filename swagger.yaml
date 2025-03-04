@@ -1,0 +1,266 @@
+openapi: 3.0.0
+info:
+  title: AIRE API
+  version: 1.0.0
+  description: >
+    This API generates and streams AI responses based on a user's chat history and a question. It also covers the ability to search for related documents in a dossier or based on a question, used for extending dossiers with extra documents.
+    The response is streamed as Server-Sent Events (SSE), allowing real-time updates on the answer.
+paths:
+  /response-stream:
+    get:
+      summary: Generate and stream an AI response.
+      description: >
+        This endpoint streams an AI-generated response as SSE. The request must include a query parameter 
+        `payload` (a JSON-encoded string) that adheres to the defined schema. The schema requires `chat_history`,
+        `question`, and `type` (with optional `document_ids` for certain types).
+      parameters:
+        - in: query
+          name: payload
+          description: >
+            A JSON-encoded string containing the following properties:
+            - chat_history: An array of message objects (with optional sources for system messages)
+            - question: The current question.
+            - type: "new", "dossier", or "document".
+            - document_ids: An array of document IDs, required if type is "dossier" or "document".
+          required: true
+          schema:
+            type: string
+            example: >
+              {
+                "chat_history": [
+                  {
+                    "role": "user",
+                    "message": "Hello!"
+                  },
+                  {
+                    "role": "system",
+                    "message": "Antwoord wordt geladen...",
+                    "sources": [
+                      {
+                        "link": "https://example.com/source1",
+                        "title": "Example Source 1",
+                        "summary": "Brief summary of source.",
+                        "document_id": 123,
+                        "year": 2023,
+                        "author": "John Doe"
+                      }
+                    ]
+                  }
+                ],
+                "question": "What is the capital of France?",
+                "type": "new"
+              }
+      responses:
+        '200':
+          description: >
+            A stream of Server-Sent Events (SSE) where each event is a JSON-encoded chunk.
+            The events include various message types such as `sources`, `summary`, `partial_answer`, and `answer`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                sources:
+                  summary: Sources event example.
+                  value: |
+                    data: {"type": "sources", "sources": [{"link": "https://example.com/source1", "title": "Example Source 1", "summary": "Brief summary of source.", "document_id": 123, "year": 2023, "author": "John Doe"}]}
+                    
+                summary:
+                  summary: Summary event example.
+                  value: |
+                    data: {"type": "summary", "index": 0, "summary": "Updated summary text"}
+                
+                partialAnswer:
+                  summary: Partial answer event example.
+                  value: |
+                    data: {"type": "partial_answer", "message": "Part"}
+                
+                answer:
+                  summary: Final answer event example.
+                  value: |
+                    data: {"type": "answer", "message": "This is the final answer."}
+        '400':
+          description: Bad Request – missing required payload parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Missing user_message"
+        '401':
+          description: Unauthorized – user not authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "User not authenticated"
+        '404':
+          description: Not Found – resource not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Resource not found"
+        '500':
+          description: Internal Server Error – an error occurred while processing the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Failed to process request: <error details>"
+  /sources:
+    get:
+      summary: Retrieve a list of sources based on a question and document IDs.
+      description: >
+        This endpoint returns a list of source objects relevant to the given question and document IDs.
+        The request must include a query parameter `payload` (a JSON-encoded string) containing:
+          - question: A string-based question.
+          - document_ids: An array of document IDs.
+          - num_sources: The number of sources requested.
+      parameters:
+        - in: query
+          name: payload
+          description: >
+            A JSON-encoded string containing the following properties:
+            - question: A string-based question.
+            - document_ids: An array of document IDs.
+            - num_sources: The number of sources requested.
+          required: true
+          schema:
+            type: string
+            example: >
+              {
+                "question": "What are the key findings in climate change research?",
+                "document_ids": [123, 456],
+                "num_sources": 5
+              }
+      responses:
+        '200':
+          description: A list of source objects.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Source'
+              example:
+                - link: "https://example.com/source1"
+                  title: "Climate Change Report"
+                  summary: "Summary of the report."
+                  document_id: 123
+                  year: 2023
+                  author: "Jane Doe"
+                - link: "https://example.com/source2"
+                  title: "Environmental Study"
+                  summary: "Key findings on climate change."
+                  document_id: 456
+                  year: 2022
+                  author: "John Smith"
+        '400':
+          description: Bad Request – missing or invalid parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Missing required parameters"
+                
+        '401':
+          description: Unauthorized – user not authenticated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "User not authenticated"
+        '500':
+          description: Internal Server Error – an error occurred while processing the request.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: "Failed to process request: <error details>"
+components:
+  schemas:
+    Source:
+      type: object
+      properties:
+        link:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        document_id:
+          type: integer
+        year:
+          type: integer
+        author:
+          type: string
+      required:
+        - link
+        - title
+        - summary
+        - document_id
+        - year
+        - author
+    ChatHistoryItem:
+      type: object
+      properties:
+        role:
+          type: string
+        message:
+          type: string
+        sources:
+          type: array
+          description: "Provided for system messages."
+          items:
+            $ref: '#/components/schemas/Source'
+      required:
+        - role
+        - message
+    RequestPayload:
+      type: object
+      properties:
+        chat_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatHistoryItem'
+        question:
+          type: string
+        type:
+          type: string
+          enum: [new, dossier, document]
+        document_ids:
+          type: array
+          items:
+            type: integer
+      required:
+        - chat_history
+        - question
+        - type
